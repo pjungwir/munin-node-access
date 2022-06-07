@@ -527,7 +527,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "munin-ic"
+name = "munin-node-access"
 version = "0.1.0"
 dependencies = [
  "clap",
