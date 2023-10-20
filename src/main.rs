@@ -14,7 +14,7 @@ async fn main() {
     let matches = Command::new("munin-node-access")
         .version("0.1.0")
         .author("Paul Jungwirth <pj@illuminatedcomputing.com>")
-        .about("Pushed a munin-node.conf file to your server with access for your current IP")
+        .about("Pushes a munin-node.conf file to your server with access for your current IP")
         .args(&[
               arg!(<login> "the ssh destination")
         ]).get_matches();
