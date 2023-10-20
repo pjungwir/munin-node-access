@@ -1,10 +1,20 @@
 use regex::Regex;
 use std::io;
+use std::fs;
 use std::io::prelude::*;
 use handlebars::Handlebars;
 use std::collections::HashMap;
 use tokio::io::{AsyncWriteExt};
 use clap::{Command, arg};
+
+fn generate_munin_file(ip: &str) -> String {
+    let mut tmpl = Handlebars::new();
+    tmpl.register_template_string("munin", include_str!("templates/munin-node.conf")).expect("template parse");
+    let mut inputs = HashMap::new();
+    inputs.insert("ip", ip);
+    let conf = tmpl.render("munin", &inputs).expect("template render");
+    conf
+}
 
 #[tokio::main]
 async fn main() {
@@ -14,52 +24,42 @@ async fn main() {
     let matches = Command::new("munin-node-access")
         .version("0.1.0")
         .author("Paul Jungwirth <pj@illuminatedcomputing.com>")
-        .about("Pushes a munin-node.conf file to your server with access for your current IP")
+        .about("Injects an IP into your munin-node.conf file")
         .args(&[
-              arg!(<login> "the ssh destination")
+              arg!(<ip> "the ip address")
         ]).get_matches();
 
 
     // get our current ip
 
+    let mut ip = matches.value_of("ip").expect("ip address").trim().to_string();
     let valid_ip = Regex::new(r"^\d+(\.\d+){3}$").expect("valid IP regex");
-    let resp = reqwest::get("https://icanhazip.com").await.expect("getting IP")
-        .text().await.expect("reading http body");
-    let mut ip = resp.trim().to_string();
     if !valid_ip.is_match(&ip) {
-        panic!("Response is not an IP: {:?}", resp);
+        panic!("Argument is not an IP: {:?}", ip);
     }
+    // Add escaping because munin treats it as a regex:
     ip = ip.replace(".", "\\.");
     ip = format!("^{}$", ip);
     // println!("{:?}", ip);
 
     // build a new munin-node.conf
 
-    let mut tmpl = Handlebars::new();
-    tmpl.register_template_string("munin", include_str!("templates/munin-node.conf")).expect("template parse");
-    let mut inputs = HashMap::new();
-    inputs.insert("ip", ip);
-    let conf = tmpl.render("munin", &inputs).expect("template render");
+    let conf = generate_munin_file(&ip);
+    // println!("{}", conf);
 
-    // ssh to the remote host
+    // Refuse to parameterize this
+    // since we want to make it safe for passwordless sudo!:
+    fs::write("/etc/munin/munin-node.conf", conf).expect("writing to file");
+}
 
-    let sess = openssh::Session::connect(matches.value_of("login").expect("ssh login"), openssh::KnownHosts::Strict).await.expect("ssh session");
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    // Upload the new munin-node.conf file,
-    // and if it's different then restart munin-node:
-
-    let mut cmd = sess.command("bash")
-        .arg("-c")
-        .arg("tee /etc/munin/munin-node.conf.new ; diff /etc/munin/munin-node.conf.new /etc/munin/munin-node.conf || (mv /etc/munin/munin-node.conf.new /etc/munin/munin-node.conf ; systemctl restart munin-node)")
-        .stdin(openssh::Stdio::piped())
-        .stdout(openssh::Stdio::piped())
-        .stderr(openssh::Stdio::piped())
-        .spawn().await.expect("ssh tee");
-    cmd.stdin().take().expect("stdin").write_all(conf.as_bytes()).await.expect("ssh write");
-    let cmd = cmd.wait_with_output().await.expect("ssh");
-    if !cmd.status.success() {
-        io::stdout().write_all(&cmd.stdout).unwrap();
-        io::stderr().write_all(&cmd.stderr).unwrap();
-        panic!("writing /etc/munin/munin-node.conf failed!");
+    #[test]
+    fn test_generate_munin_file() {
+        let conf = generate_munin_file("^1\\.2\\.3\\.4$");
+        assert!(conf.contains("^1\\.2\\.3\\.4$"));
+        assert!(conf.contains("Example config-file for munin-node"));
     }
 }

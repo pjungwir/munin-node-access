@@ -1,0 +1,12 @@
+#!/bin/bash
+set -eu
+
+ssh_dest="${1}"
+
+ip=$(curl https://icanhazip.com 2>/dev/null)
+if [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  ssh "$ssh_dest" "sudo /usr/local/bin/munin-node-access $ip"
+else
+  echo "Doesn't look like an IP address!: $ip"
+  exit 1
+fi;
